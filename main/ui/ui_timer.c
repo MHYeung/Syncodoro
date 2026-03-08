@@ -28,6 +28,8 @@ typedef struct {
     lv_obj_t *label_status;
     lv_obj_t *arrow_left;
     lv_obj_t *arrow_right;
+    lv_obj_t *btn_settings;   // Hidden while timer is running (clean UX)
+    lv_obj_t *btn_history;
     lv_timer_t *lv_tick;       // Persistent LVGL tick timer
 } pomo_ui_t;
 
@@ -310,6 +312,8 @@ static void update_ui_state(void)
                 lv_obj_set_style_arc_color(pui.arc_progress, OVERTEC_TEXT_SECONDARY, LV_PART_INDICATOR);
             if (pui.arrow_left)  lv_obj_remove_flag(pui.arrow_left,  LV_OBJ_FLAG_HIDDEN);
             if (pui.arrow_right) lv_obj_remove_flag(pui.arrow_right, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_settings) lv_obj_remove_flag(pui.btn_settings, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_history)  lv_obj_remove_flag(pui.btn_history,  LV_OBJ_FLAG_HIDDEN);
             break;
 
         case pomoTimer_COUNTING:
@@ -319,6 +323,8 @@ static void update_ui_state(void)
                 lv_obj_set_style_arc_color(pui.arc_progress, OVERTEC_STATE_START, LV_PART_INDICATOR);
             if (pui.arrow_left)  lv_obj_add_flag(pui.arrow_left,  LV_OBJ_FLAG_HIDDEN);
             if (pui.arrow_right) lv_obj_add_flag(pui.arrow_right, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_settings) lv_obj_add_flag(pui.btn_settings, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_history)  lv_obj_add_flag(pui.btn_history,  LV_OBJ_FLAG_HIDDEN);
             break;
 
         case pomoTimer_STOP:
@@ -328,6 +334,8 @@ static void update_ui_state(void)
                 lv_obj_set_style_arc_color(pui.arc_progress, OVERTEC_STATE_PAUSE, LV_PART_INDICATOR);
             if (pui.arrow_left)  lv_obj_add_flag(pui.arrow_left,  LV_OBJ_FLAG_HIDDEN);
             if (pui.arrow_right) lv_obj_add_flag(pui.arrow_right, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_settings) lv_obj_remove_flag(pui.btn_settings, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_history)  lv_obj_remove_flag(pui.btn_history,  LV_OBJ_FLAG_HIDDEN);
             break;
 
         case pomoTimer_COMPLETED:
@@ -337,6 +345,8 @@ static void update_ui_state(void)
                 lv_obj_set_style_arc_color(pui.arc_progress, OVERTEC_STATE_STOP, LV_PART_INDICATOR);
             if (pui.arrow_left)  lv_obj_add_flag(pui.arrow_left,  LV_OBJ_FLAG_HIDDEN);
             if (pui.arrow_right) lv_obj_add_flag(pui.arrow_right, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_settings) lv_obj_remove_flag(pui.btn_settings, LV_OBJ_FLAG_HIDDEN);
+            if (pui.btn_history)  lv_obj_remove_flag(pui.btn_history,  LV_OBJ_FLAG_HIDDEN);
             break;
     }
 }
@@ -408,12 +418,14 @@ static void arrow_right_cb(lv_event_t *e)
 // =========================================================
 static void clear_pui_widgets(void)
 {
-    pui.arc_progress = NULL;
-    pui.label_time   = NULL;
-    pui.label_tag    = NULL;
-    pui.label_status = NULL;
-    pui.arrow_left   = NULL;
-    pui.arrow_right  = NULL;
+    pui.arc_progress  = NULL;
+    pui.label_time    = NULL;
+    pui.label_tag     = NULL;
+    pui.label_status  = NULL;
+    pui.arrow_left    = NULL;
+    pui.arrow_right   = NULL;
+    pui.btn_settings  = NULL;
+    pui.btn_history   = NULL;
 }
 
 static void nav_settings_cb(lv_event_t *e)
@@ -540,27 +552,27 @@ void ui_timer_load(void)
     lv_obj_set_style_pad_all(pui.arrow_right, 30, 0);
     lv_obj_align(pui.arrow_right, LV_ALIGN_RIGHT_MID, -20, -10);
 
-    // ── Navigation icon buttons ───────────────────────────
-    lv_obj_t *btn_settings = lv_button_create(scr);
-    lv_obj_set_size(btn_settings, 44, 38);
-    lv_obj_align(btn_settings, LV_ALIGN_TOP_LEFT, 4, 4);
-    lv_obj_set_style_bg_color(btn_settings, OVERTEC_BG_SURFACE, 0);
-    lv_obj_set_style_bg_opa(btn_settings, LV_OPA_80, 0);
-    lv_obj_set_ext_click_area(btn_settings, 10);
-    lv_obj_add_event_cb(btn_settings, nav_settings_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *lbl_settings = lv_label_create(btn_settings);
+    // ── Navigation icon buttons (hidden while timer is running) ──
+    pui.btn_settings = lv_button_create(scr);
+    lv_obj_set_size(pui.btn_settings, 44, 38);
+    lv_obj_align(pui.btn_settings, LV_ALIGN_TOP_LEFT, 4, 4);
+    lv_obj_set_style_bg_color(pui.btn_settings, OVERTEC_BG_SURFACE, 0);
+    lv_obj_set_style_bg_opa(pui.btn_settings, LV_OPA_80, 0);
+    lv_obj_set_ext_click_area(pui.btn_settings, 10);
+    lv_obj_add_event_cb(pui.btn_settings, nav_settings_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *lbl_settings = lv_label_create(pui.btn_settings);
     lv_label_set_text(lbl_settings, LV_SYMBOL_SETTINGS);
     lv_obj_set_style_text_color(lbl_settings, OVERTEC_TEXT_SECONDARY, 0);
     lv_obj_center(lbl_settings);
 
-    lv_obj_t *btn_history = lv_button_create(scr);
-    lv_obj_set_size(btn_history, 44, 38);
-    lv_obj_align(btn_history, LV_ALIGN_TOP_RIGHT, -4, 4);
-    lv_obj_set_style_bg_color(btn_history, OVERTEC_BG_SURFACE, 0);
-    lv_obj_set_style_bg_opa(btn_history, LV_OPA_80, 0);
-    lv_obj_set_ext_click_area(btn_history, 10);
-    lv_obj_add_event_cb(btn_history, nav_history_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *lbl_history = lv_label_create(btn_history);
+    pui.btn_history = lv_button_create(scr);
+    lv_obj_set_size(pui.btn_history, 44, 38);
+    lv_obj_align(pui.btn_history, LV_ALIGN_TOP_RIGHT, -4, 4);
+    lv_obj_set_style_bg_color(pui.btn_history, OVERTEC_BG_SURFACE, 0);
+    lv_obj_set_style_bg_opa(pui.btn_history, LV_OPA_80, 0);
+    lv_obj_set_ext_click_area(pui.btn_history, 10);
+    lv_obj_add_event_cb(pui.btn_history, nav_history_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *lbl_history = lv_label_create(pui.btn_history);
     lv_label_set_text(lbl_history, LV_SYMBOL_LIST);
     lv_obj_set_style_text_color(lbl_history, OVERTEC_TEXT_SECONDARY, 0);
     lv_obj_center(lbl_history);

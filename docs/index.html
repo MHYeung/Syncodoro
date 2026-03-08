@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syncodoro Web Installer</title>
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <style>
+        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu; text-align: center; padding: 50px; background-color: #f0f2f5; color: #1c1e21; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        h1 { color: #ff4757; margin-bottom: 10px; }
+        p { line-height: 1.6; color: #57606f; }
+        .status-box { margin-top: 30px; padding: 20px; border-top: 1px solid #eee; }
+        esp-web-install-button button { 
+            background-color: #ff4757; color: white; padding: 15px 35px; 
+            border: none; border-radius: 50px; cursor: pointer; font-size: 18px; font-weight: bold;
+            transition: transform 0.2s ease;
+        }
+        esp-web-install-button button:hover { transform: scale(1.05); background-color: #ff6b81; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍅 Syncodoro</h1>
+        <p>Flash the latest firmware directly to your ESP32 device.</p>
+        <p>Ensure your device is connected via USB-C. Use <b>Chrome</b> or <b>Edge</b> browsers.</p>
+        
+        <div class="status-box">
+            <esp-web-install-button manifest="./manifest.json">
+                <button slot="activate">Install Syncodoro</button>
+            </esp-web-install-button>
+        </div>
+        
+        <p style="margin-top: 20px;"><small>Based on ESP Web Tools • No drivers needed for most systems</small></p>
+    </div>
+</body>
+</html>

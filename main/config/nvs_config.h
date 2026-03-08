@@ -27,6 +27,11 @@ esp_err_t nvs_config_set_theme(uint8_t idx);
 esp_err_t nvs_config_get_tags(char *buf, size_t len);
 esp_err_t nvs_config_set_tags(const char *tags_nl);
 
+// Copy the first tag from the stored list (NVS or built-in default) into buf.
+// If the list is empty, copies the fallback "Focus". Use at boot to align
+// the device tag with the first item shown on the web dashboard.
+void nvs_config_get_first_tag(char *buf, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

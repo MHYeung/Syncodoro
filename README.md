@@ -1,6 +1,6 @@
 # Syncodoro
 
-A standalone **Pomodoro focus timer** built on the ESP32-2432S028R ("Cheap Yellow Display") — a 2.8-inch resistive touchscreen embedded device that counts down focus sessions, logs them to a microSD card, and serves a live web dashboard over your local WiFi network.
+A standalone **Pomodoro focus timer** for the ESP32-2432S028R ("Cheap Yellow Display") — a 2.8" resistive touchscreen device that runs focus sessions, logs them to internal SPIFFS, syncs time over NTP, and serves a web dashboard on your local WiFi. Manage tags in the browser; the device shows the same list and uses the first tag on boot.
 
 ---
 
@@ -8,14 +8,14 @@ A standalone **Pomodoro focus timer** built on the ESP32-2432S028R ("Cheap Yello
 
 | Feature | Details |
 |---|---|
-| **Touchscreen UI** | LVGL-powered dark interface with circular arc progress, large countdown display, and tap-to-start/pause gestures |
-| **Focus sessions** | Configurable duration (5–120 min in 5-min steps) and class tag (Coding, Reading, Writing, Design, Gaming, Studying) |
-| **Session logging** | Completed sessions saved to `/sdcard/sessions.csv` for permanent history |
-| **On-device history** | Scrollable session log screen showing tag, duration, and timestamp |
-| **WiFi setup portal** | First-boot AP captive portal — connect your phone, enter home WiFi credentials, device reboots into STA mode |
-| **Web dashboard** | Served from firmware flash over LAN: session history table, JSON API, and one-click CSV download |
-| **SD config** | `/sdcard/config.json` persists your preferred duration and tag across reboots |
-| **Dual-boot path** | NVS `setup_mode` flag cleanly separates first-boot setup from normal timer operation |
+| **Touchscreen UI** | LVGL dark theme with circular arc progress, large countdown, tap-to-start/pause; four colour themes (Dark, Forest, Ocean, Warm) in Settings |
+| **Focus sessions** | Duration 5–120 min (5-min steps); tag chosen from a list synced with the web dashboard (add/edit tags in browser, select on device) |
+| **Session logging** | Completed sessions appended to `/data/sessions.csv` on internal SPIFFS (no SD card required) |
+| **Session timestamps** | NTP time sync after WiFi connect; session start time stored in UTC (YYYY-MM-DD HH:MM) |
+| **On-device history** | Scrollable session list: tag, duration, date/time |
+| **Web dashboard** | Session history table, CSV download, and **Manage Tags** (add/remove tags, save to device); all HTML/JS embedded in firmware |
+| **WiFi modes** | **AP mode** (first boot): device hosts `Syncodoro-Setup`, you join and open 192.168.4.1 to enter home WiFi. **STA mode** (normal): device joins your network and serves the dashboard at its LAN IP |
+| **Dual-boot path** | NVS `setup_mode` separates first-boot setup from normal timer operation; config (duration) in `/data/config.json` on SPIFFS |
 
 ---
 
@@ -66,16 +66,16 @@ Power on
    │
    ├── YES (first boot / reset) ──────────────────────────┐
    │    WiFi AP "Syncodoro-Setup"                         │
-   │    HTTP captive portal at 192.168.4.1                │
-   │    User enters SSID + password in browser            │
-   │    Credentials saved to NVS → reboot                 │
+   │    HTTP server at 192.168.4.1 (setup form)           │
+   │    User enters SSID + password → save → reboot        │
    │                                                      │
    └── NO (normal boot) ───────────────────────────────────┘
-        Mount SD card (optional, non-fatal)
-        Load /sdcard/config.json → apply duration + tag
+        Mount SPIFFS (/data)
+        Load /data/config.json → apply duration
+        Set tag = first tag from NVS list (or built-in list)
         WiFi STA connect (non-blocking)
         Show Timer UI
-        On IP assigned → start web dashboard server
+        On IP assigned → HTTP dashboard + SNTP time sync
 ```
 
 ### Screen Navigation
@@ -105,7 +105,7 @@ syncodoro/
     │   ├── pomo_model.c    # Global active_session (single source of truth)
     │   └── pomo_model.h    # pomoTimer_t struct + pomotimerState_t enum
     ├── config/
-    │   ├── nvs_config.c    # NVS read/write: setup_mode, wifi_ssid, wifi_pass
+    │   ├── nvs_config.c   # NVS: setup_mode, wifi, theme, user_tags; get_first_tag for boot
     │   └── nvs_config.h
     ├── network/
     │   ├── wifi_manager.c  # AP/STA state machine, 5-retry policy, IP callback
@@ -113,16 +113,16 @@ syncodoro/
     │   ├── http_server.c   # Captive portal (setup) + dashboard (normal mode)
     │   └── http_server.h
     ├── storage/
-    │   ├── session_csv.c   # Append/read /sdcard/sessions.csv
+    │   ├── session_csv.c   # Append/read /data/sessions.csv (SPIFFS)
     │   ├── session_csv.h
-    │   ├── config_json.c   # Read/write /sdcard/config.json
+    │   ├── config_json.c   # Read/write /data/config.json (SPIFFS)
     │   └── config_json.h
     └── ui/
         ├── ui_theme.h      # Overtec dark theme — LVGL color constants
         ├── ui_timer.c/h    # Main timer screen (arc, countdown, modals, nav icons)
         ├── ui_setup.c/h    # First-boot AP instructions screen
         ├── ui_settings.c/h # WiFi status + navigation hub
-        └── ui_history.c/h  # Scrollable session list from SD CSV
+        └── ui_history.c/h  # Scrollable session list from SPIFFS CSV
 ```
 
 ---
@@ -146,39 +146,70 @@ A single global `active_session` is the shared state across all UI screens, stor
 
 ### Session CSV Format
 
+Sessions are stored in `/data/sessions.csv` on SPIFFS. Headers and separate Date/Time columns make pasting into Notion or Google Sheets straightforward.
+
 ```
-timerID,focusDuration,pomoCount,classTag,dateAndTime,isCompleted
-s1709123456,25,1.0,Coding,1709123456s,1
-s1709127890,20,2.0,Reading,1709127890s,1
+Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed
+s1709123456,2025-03-08,14:30,Coding,25,1,Yes
+s1709127890,2025-03-08,15:00,Reading,20,2,Yes
 ```
 
 ---
 
 ## Web Dashboard
 
-Once the device is connected to your WiFi, open `http://<device-ip>` in any browser on the same network.
+When the device is in **STA (station) mode** and connected to your WiFi, open `http://<device-ip>` in a browser on the same network (the Settings screen on the device shows the IP).
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/` | GET | Session history dashboard (HTML, embedded in firmware) |
-| `/api/sessions` | GET | All sessions as a JSON array (streamed from SD CSV) |
-| `/download` | GET | Download `sessions.csv` directly as a file attachment |
+| `/` | GET | Session history table + **Manage Tags** card (add/remove tags, Save to device) |
+| `/api/sessions` | GET | All sessions as a JSON array (from SPIFFS CSV) |
+| `/api/tags` | GET | Current tag list as JSON array |
+| `/api/tags` | POST | Save tag list (form body: `tags=Tag1%0ATag2`) |
+| `/download` | GET | Download `sessions.csv` as attachment |
 
-> **No filesystem component needed** — all HTML, CSS, and JavaScript is embedded as C string literals in flash.
+The tag list is stored in NVS; the device uses the **first tag** in that list as the default on boot, and the tag picker on the timer screen shows the same list.
 
 ---
 
-## WiFi Setup (First Boot)
+## Manual setup: AP mode and STA (host) mode
 
-1. Power on the device — it starts in AP mode.
-2. The screen shows setup instructions.
-3. On your phone or PC, connect to the WiFi network **`Syncodoro-Setup`** (open, no password).
-4. Open a browser and go to **`http://192.168.4.1`**.
-5. Enter your home WiFi SSID and password, then tap **Save & Connect**.
-6. The device saves credentials to NVS, shows a confirmation, and **reboots automatically** after 2 seconds.
-7. On the next boot, it connects to your WiFi in STA mode and the web dashboard becomes available.
+The device has two WiFi roles. Understanding them makes setup and recovery straightforward.
 
-To **reset WiFi credentials**, use `idf.py erase-flash` or add an NVS erase mechanism.
+### Modes at a glance
+
+| Mode | When it’s used | What the device does | How you access it |
+|------|----------------|----------------------|-------------------|
+| **AP (Access Point)** | First boot, or after NVS is erased | Creates WiFi network **`Syncodoro-Setup`** (open). Serves a setup page at **192.168.4.1** | Join `Syncodoro-Setup`, open browser → `http://192.168.4.1` |
+| **STA (Station)** | Normal use after WiFi is configured | Joins your home/office WiFi. Gets an IP from your router. Serves the **dashboard** at that IP | Open `http://<device-ip>` from any device on the same network |
+
+### Going from AP mode to STA mode (first-time setup)
+
+1. **Power on** the device. If it has never had WiFi saved, it starts in **AP mode**.
+2. The screen shows instructions to connect to **`Syncodoro-Setup`** and open **192.168.4.1**.
+3. On a phone or PC, connect to the WiFi network **`Syncodoro-Setup`** (no password).
+4. Open a browser and go to **`http://192.168.4.1`** (or `http://192.168.4.1/`).
+5. Enter your **home/office WiFi SSID** and **password**, then tap **Save & Connect**.
+6. The device writes credentials to NVS, shows “Saved!”, and **reboots after about 2 seconds**.
+7. After reboot it starts in **STA mode**: it joins your WiFi, gets an IP, and starts the web dashboard and NTP. The **Settings** screen on the device shows the current IP (e.g. `192.168.1.42`). Open **`http://<that-ip>`** in a browser to use the session history and **Manage Tags**.
+
+You are now in STA (host) mode. Every later power-on will also start in STA mode until NVS is cleared.
+
+### Staying in STA mode (normal use)
+
+- Power on → NVS has WiFi credentials and `setup_mode` off → device goes straight to **STA mode**, connects to your network, and runs the timer + dashboard. No need to touch AP mode again unless you reset WiFi.
+
+### Going back to AP mode (reset WiFi)
+
+- If you need to **re-enter WiFi credentials** (new router, new network, wrong password):
+  - **Erase NVS** so the device “forgets” it was set up. After that it will boot in AP mode again.
+  - From the project directory:  
+    `idf.py -p COM<PORT> erase-flash`  
+    then flash again:  
+    `idf.py -p COM<PORT> flash`
+  - **Warning:** `erase-flash` wipes the whole flash (including app). So re-flash the firmware after erase. Alternatively, only erase the NVS partition if you have a partition table that exposes it (e.g. `idf.py -p COMx erase-region 0x9000 0x6000` for a 24 KB NVS at 0x9000).
+
+After erasing and re-flashing, the device will boot in **AP mode** again; repeat the “Going from AP mode to STA mode” steps to configure WiFi and return to STA (host) mode.
 
 ---
 
@@ -230,7 +261,7 @@ idf.py -p COM<PORT> flash
 0x00009000  NVS               24 KB   — WiFi credentials, setup_mode flag
 0x0000F000  PHY init data     4 KB
 0x00010000  App (factory)     1.94 MB — firmware binary (~1.35 MB used, 33% free)
-0x00200000  Storage (SPIFFS)  2 MB    — reserved (SD card used instead for now)
+0x00200000  Storage (SPIFFS)  2 MB    — /data (sessions.csv, config.json)
 ```
 
 ---
@@ -248,9 +279,10 @@ idf.py -p COM<PORT> flash
 
 ## Roadmap
 
-- [ ] RTC integration (DS3231) for accurate session timestamps
+- [x] NTP time sync for session timestamps (no RTC hardware needed)
+- [x] Colour theme selection in Settings (Dark, Forest, Ocean, Warm)
+- [x] Web-managed tags (add/remove on dashboard, first tag on device at boot)
 - [ ] Notion API sync — post sessions to a Notion database
-- [ ] Color theme selection in Settings UI
 - [ ] Break timer mode (short / long break)
 - [ ] Daily session goal and streak tracking
 - [ ] OTA firmware update via web dashboard

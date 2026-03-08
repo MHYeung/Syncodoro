@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static const char *TAG = "ui_timer";
 
@@ -49,9 +50,13 @@ static void modal_tag_cancel_cb(lv_event_t *e)
 
 static void modal_tag_select_cb(lv_event_t *e)
 {
+    static const char *FALLBACK_TAG = "Focus";
     lv_obj_t *roller = lv_event_get_user_data(e);
     if (roller) {
         lv_roller_get_selected_str(roller, active_session.classTag, sizeof(active_session.classTag));
+        if (active_session.classTag[0] == '\0') {
+            strlcpy(active_session.classTag, FALLBACK_TAG, sizeof(active_session.classTag));
+        }
         if (pui.label_tag) lv_label_set_text(pui.label_tag, active_session.classTag);
     }
     if (modal_overlay) { lv_obj_delete(modal_overlay); modal_overlay = NULL; }
@@ -80,11 +85,16 @@ static void show_tag_modal(void)
     lv_obj_align(label_title, LV_ALIGN_TOP_MID, 0, 0);
 
     // Load tags from NVS; fall back to built-in list when none are saved yet.
+    // Never pass an empty list to the roller (avoids NULL/empty selection errors).
     static const char *DEFAULT_TAGS = "Coding\nReading\nWriting\nDesign\nGaming\nStudying";
+    static const char *FALLBACK_TAG  = "Focus\n";
     char tag_buf[512];
     const char *tag_options = DEFAULT_TAGS;
-    if (nvs_config_get_tags(tag_buf, sizeof(tag_buf)) == ESP_OK && tag_buf[0] != '\0') {
+    if (nvs_config_get_tags(tag_buf, sizeof(tag_buf)) == ESP_OK && tag_buf[0] != '\0' && tag_buf[0] != '\n') {
         tag_options = tag_buf;
+    }
+    if (tag_options[0] == '\0' || tag_options[0] == '\n') {
+        tag_options = FALLBACK_TAG;
     }
 
     lv_obj_t *roller = lv_roller_create(panel);
@@ -194,13 +204,6 @@ static void modal_save_cb(lv_event_t *e)
     // Generate a unique session ID from the uptime counter
     snprintf(active_session.timerID, sizeof(active_session.timerID),
              "s%lld", esp_timer_get_time() / 1000000LL);
-
-    // Use a clean "unknown" placeholder when no NTP time is available
-    if (active_session.dateAndTime[0] == '\0' ||
-        active_session.dateAndTime[0] == '-') {
-        strlcpy(active_session.dateAndTime, "unknown",
-                sizeof(active_session.dateAndTime));
-    }
 
     esp_err_t ret = session_csv_append(&active_session);
     if (ret != ESP_OK) {
@@ -347,6 +350,24 @@ static void scr_clicked_cb(lv_event_t *e)
         case pomoTimer_IDLE:
             active_session.timerState = pomoTimer_COUNTING;
             active_session.isCompleted = false;
+
+            // Stamp the session start time in UTC (YYYY-MM-DD HH:MM).
+            // gmtime_r is always UTC regardless of TZ setting, so no timezone
+            // configuration is needed.  The year check guards against using
+            // the epoch (1970-01-01) before SNTP has synced.
+            {
+                time_t now = time(NULL);
+                struct tm ts;
+                gmtime_r(&now, &ts);
+                if (ts.tm_year > 70) {
+                    strftime(active_session.dateAndTime,
+                             sizeof(active_session.dateAndTime),
+                             "%Y-%m-%d %H:%M", &ts);
+                } else {
+                    strlcpy(active_session.dateAndTime, "unknown",
+                            sizeof(active_session.dateAndTime));
+                }
+            }
             break;
         case pomoTimer_COUNTING:
             active_session.timerState = pomoTimer_STOP;
@@ -487,7 +508,8 @@ void ui_timer_load(void)
 
     // ── Tag label (clickable) ─────────────────────────────
     pui.label_tag = lv_label_create(scr);
-    lv_label_set_text(pui.label_tag, active_session.classTag);
+    lv_label_set_text(pui.label_tag,
+                      active_session.classTag[0] != '\0' ? active_session.classTag : "Focus");
     lv_obj_set_width(pui.label_tag, 180);
     lv_obj_set_style_text_align(pui.label_tag, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(pui.label_tag, OVERTEC_ACCENT, 0);

@@ -12,16 +12,26 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_lvgl_port.h"
+#include "esp_netif_sntp.h"
 
 #include <string.h>
 
 static const char *TAG = "main";
 
-// Called from WiFi event (IP_EVENT_STA_GOT_IP) – starts the dashboard server.
+// Called from WiFi event (IP_EVENT_STA_GOT_IP) – starts the dashboard server
+// and kicks off NTP time sync so sessions get accurate timestamps.
 static void on_wifi_connected(void)
 {
     ESP_LOGI(TAG, "WiFi connected → starting dashboard HTTP server");
     http_server_start_dashboard();
+
+    // Initialise SNTP once — subsequent calls are ignored if already running.
+    // System clock (time/gmtime) becomes accurate within a few seconds after
+    // the NTP response arrives; the timer screen checks for a valid year before
+    // stamping a session, so there is no race condition to handle.
+    esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    esp_netif_sntp_init(&sntp_cfg);
+    ESP_LOGI(TAG, "SNTP init → syncing time from pool.ntp.org");
 }
 
 void app_main(void)
@@ -62,7 +72,7 @@ void app_main(void)
         // Mount internal SPIFFS for session history and user config
         ESP_ERROR_CHECK(cyd_init_spiffs());
 
-        // Load user config from /data/config.json and apply to active session
+        // Load user config from /data/config.json (duration; tag is set from tag list below)
         {
             int focus_dur = active_session.focusDuration;
             char class_tag[32];
@@ -70,10 +80,17 @@ void app_main(void)
 
             if (config_json_load(&focus_dur, class_tag, sizeof(class_tag)) == ESP_OK) {
                 active_session.focusDuration = focus_dur;
-                strlcpy(active_session.classTag, class_tag, sizeof(active_session.classTag));
                 active_session.remaining_secs = focus_dur * 60;
-                ESP_LOGI(TAG, "Config applied: %d min / %s", focus_dur, class_tag);
+                ESP_LOGI(TAG, "Config applied: %d min", focus_dur);
             }
+        }
+
+        // Align displayed tag with the first item on the web dashboard (NVS or default list)
+        {
+            char first_tag[32];
+            nvs_config_get_first_tag(first_tag, sizeof(first_tag));
+            strlcpy(active_session.classTag, first_tag, sizeof(active_session.classTag));
+            ESP_LOGI(TAG, "Tag set to first in list: %s", active_session.classTag);
         }
 
         // Start WiFi STA (non-blocking; callback fires on IP assignment)

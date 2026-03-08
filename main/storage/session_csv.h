@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 #define SESSION_CSV_PATH    "/data/sessions.csv"
-#define SESSION_CSV_HEADER  "timerID,focusDuration,pomoCount,classTag,dateAndTime,isCompleted\n"
+#define SESSION_CSV_HEADER  "Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed\n"
 
 // Append one completed session row to /sdcard/sessions.csv.
 // Creates the file with a header if it doesn't exist yet.

@@ -2,6 +2,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
+#include <string.h>
 
 static const char *TAG = "nvs_cfg";
 static const char *NVS_NS = "syncodoro";
@@ -143,4 +144,39 @@ esp_err_t nvs_config_set_tags(const char *tags_nl)
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
     return err;
+}
+
+#define TAG_LIST_DEFAULT  "Coding\nReading\nWriting\nDesign\nGaming\nStudying"
+#define TAG_FALLBACK      "Focus"
+
+/**
+ * @brief Copy the first tag from the stored list into buf for boot/default display.
+ *
+ * Reads the same tag list as the web dashboard (NVS user_tags or built-in list).
+ * If the list is empty or the first line is empty, copies TAG_FALLBACK so the
+ * device never shows an empty tag and avoids NULL/empty handling in the UI.
+ *
+ * @param buf  Output buffer for the first tag string.
+ * @param len  Size of buf (use at least 32 for classTag).
+ */
+void nvs_config_get_first_tag(char *buf, size_t len)
+{
+    if (!buf || len == 0) return;
+
+    char tag_buf[512];
+    const char *list = TAG_LIST_DEFAULT;
+    if (nvs_config_get_tags(tag_buf, sizeof(tag_buf)) == ESP_OK && tag_buf[0] != '\0') {
+        list = tag_buf;
+    }
+
+    const char *end = strchr(list, '\n');
+    size_t first_len = end ? (size_t)(end - list) : strlen(list);
+    if (first_len == 0) {
+        strlcpy(buf, TAG_FALLBACK, len);
+        return;
+    }
+    if (first_len >= len) first_len = len - 1;
+    memcpy(buf, list, first_len);
+    buf[first_len] = '\0';
+    if (buf[0] == '\0') strlcpy(buf, TAG_FALLBACK, len);
 }

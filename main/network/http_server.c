@@ -95,8 +95,8 @@ static const char DASHBOARD_HTML[] =
 "</style></head><body>"
 "<h1>Syncodoro</h1><p class=\"sub\">Pomodoro Session History</p>"
 "<a href=\"/download\" class=\"btn\">&#11123; Download CSV</a>"
-"<table><thead><tr><th>#</th><th>Date &amp; Time</th><th>Tag</th><th>Duration (min)</th><th>Sessions</th></tr></thead>"
-"<tbody id=\"b\"><tr><td colspan=\"5\" class=\"empty\">Loading...</td></tr></tbody></table>"
+"<table><thead><tr><th>#</th><th>Date</th><th>Time (UTC)</th><th>Tag</th><th>Duration (min)</th><th>Pomodoros</th><th>Completed</th></tr></thead>"
+"<tbody id=\"b\"><tr><td colspan=\"7\" class=\"empty\">Loading...</td></tr></tbody></table>"
 "<h2>Manage Tags</h2>"
 "<div class=\"card\">"
 "<div id=\"tl\"><p class=\"empty\">Loading...</p></div>"
@@ -112,11 +112,14 @@ static const char DASHBOARD_HTML[] =
 /* Load sessions */
 "fetch('/api/sessions').then(function(r){return r.json();}).then(function(d){"
 "var b=document.getElementById('b');"
-"if(!d||!d.length){b.innerHTML='<tr><td colspan=\"5\" class=\"empty\">No sessions recorded yet.</td></tr>';return;}"
+"if(!d||!d.length){b.innerHTML='<tr><td colspan=\"7\" class=\"empty\">No sessions recorded yet.</td></tr>';return;}"
 "b.innerHTML=d.map(function(s,i){"
-"return'<tr><td>'+(i+1)+'</td><td>'+s.dateAndTime+'</td><td><span class=\"tag\">'+s.classTag+'</span></td><td>'+s.focusDuration+'</td><td>'+Math.round(s.pomoCount)+'</td></tr>';"
+"return'<tr><td>'+(i+1)+'</td><td>'+s.date+'</td><td>'+s.time+'</td>'"
+"+'<td><span class=\"tag\">'+s.classTag+'</span></td>'"
+"+'<td>'+s.focusDuration+'</td><td>'+Math.round(s.pomoCount)+'</td>'"
+"+'<td>'+s.completed+'</td></tr>';"
 "}).join('');}).catch(function(){"
-"document.getElementById('b').innerHTML='<tr><td colspan=\"5\" class=\"empty\">Could not load sessions.</td></tr>';"
+"document.getElementById('b').innerHTML='<tr><td colspan=\"7\" class=\"empty\">Could not load sessions.</td></tr>';"
 "});"
 /* Load tags */
 "fetch('/api/tags').then(function(r){return r.json();}).then(function(d){"
@@ -126,8 +129,8 @@ static const char DASHBOARD_HTML[] =
 "var el=document.getElementById('tl');"
 "if(!tags.length){el.innerHTML='<p class=\"empty\">No tags yet. Add one below.</p>';return;}"
 "el.innerHTML=tags.map(function(t,i){"
-"return'<div class=\"tag-row\"><span class=\"tag-name\">'+t+'</span>"
-"<button class=\"btn-del\" onclick=\"removeTag('+i+')\">&#10005;</button></div>';"
+"return'<div class=\"tag-row\"><span class=\"tag-name\">'+t+'</span>'"
+"+'<button class=\"btn-del\" onclick=\"removeTag('+i+')\">&#10005;</button></div>';"
 "}).join('');}"
 "function addTag(){"
 "var v=document.getElementById('nt').value.trim();"
@@ -320,28 +323,33 @@ static esp_err_t api_sessions_handler(httpd_req_t *req)
         return ESP_OK;
     }
 
-    char timerID[32], classTag[32], dateAndTime[32];
+    // Format: Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed
+    char timerID[32], classTag[32], date_str[16], time_str[8], completed_str[4];
     int focusDuration;
     double pomoCount;
-    int isCompleted;
-    char chunk[384];
+    char chunk[400];
 
     while (fgets(line, sizeof(line), f)) {
         // Strip trailing newline
         line[strcspn(line, "\r\n")] = '\0';
         if (line[0] == '\0') continue;
 
-        // Parse CSV: timerID,focusDuration,pomoCount,classTag,dateAndTime,isCompleted
-        int parsed = sscanf(line, "%31[^,],%d,%lf,%31[^,],%31[^,],%d",
-                            timerID, &focusDuration, &pomoCount, classTag, dateAndTime, &isCompleted);
-        if (parsed < 5) continue;
+        timerID[0] = classTag[0] = date_str[0] = time_str[0] = completed_str[0] = '\0';
+        focusDuration = 0;
+        pomoCount = 0.0;
+
+        int parsed = sscanf(line, "%31[^,],%15[^,],%7[^,],%31[^,],%d,%lf,%3[^\n]",
+                            timerID, date_str, time_str, classTag,
+                            &focusDuration, &pomoCount, completed_str);
+        if (parsed < 6) continue;
 
         snprintf(chunk, sizeof(chunk),
-                 "%s{\"timerID\":\"%s\",\"focusDuration\":%d,\"pomoCount\":%.1f,"
-                 "\"classTag\":\"%s\",\"dateAndTime\":\"%s\",\"isCompleted\":%s}",
+                 "%s{\"timerID\":\"%s\",\"date\":\"%s\",\"time\":\"%s\","
+                 "\"dateAndTime\":\"%s %s\",\"classTag\":\"%s\","
+                 "\"focusDuration\":%d,\"pomoCount\":%.1f,\"completed\":\"%s\"}",
                  first ? "" : ",",
-                 timerID, focusDuration, pomoCount, classTag, dateAndTime,
-                 isCompleted ? "true" : "false");
+                 timerID, date_str, time_str, date_str, time_str,
+                 classTag, focusDuration, pomoCount, completed_str);
 
         httpd_resp_sendstr_chunk(req, chunk);
         first = false;
@@ -422,6 +430,10 @@ static esp_err_t api_tags_get_handler(httpd_req_t *req)
         p = nl + 1;
     }
 
+    /* If list was empty or only newlines, return a single default to avoid NULL/empty UI */
+    if (first) {
+        pos += snprintf(json + pos, sizeof(json) - (size_t)pos, "\"Focus\"");
+    }
     snprintf(json + pos, sizeof(json) - (size_t)pos, "]");
     httpd_resp_sendstr(req, json);
     return ESP_OK;

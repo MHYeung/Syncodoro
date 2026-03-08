@@ -57,10 +57,12 @@ void ui_history_load(void)
     lv_obj_set_scroll_dir(list_cont, LV_DIR_VER);
 
     // ── Read CSV ──────────────────────────────────────────
+    // Format: Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed
     {
         char line[256];
-        char timerID[32], classTag[32], dateAndTime[32];
-        int focusDuration, isCompleted, count = 0;
+        char timerID[32], classTag[32], date_str[16], time_str[8], completed_str[4];
+        char display_dt[24];
+        int focusDuration, count = 0;
         double pomoCount;
         bool first = true;
 
@@ -79,14 +81,21 @@ void ui_history_load(void)
                 line[strcspn(line, "\r\n")] = '\0';
                 if (line[0] == '\0') continue;
 
-                timerID[0] = classTag[0] = dateAndTime[0] = '\0';
-                focusDuration = isCompleted = 0;
+                timerID[0] = classTag[0] = date_str[0] = time_str[0] = completed_str[0] = '\0';
+                focusDuration = 0;
                 pomoCount = 0.0;
 
-                int parsed = sscanf(line, "%31[^,],%d,%lf,%31[^,],%31[^,],%d",
-                                    timerID, &focusDuration, &pomoCount,
-                                    classTag, dateAndTime, &isCompleted);
-                if (parsed < 5) continue;
+                // Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed
+                int parsed = sscanf(line, "%31[^,],%15[^,],%7[^,],%31[^,],%d,%lf,%3[^\n]",
+                                    timerID, date_str, time_str,
+                                    classTag, &focusDuration, &pomoCount, completed_str);
+                if (parsed < 6) continue;
+
+                // For display: show MM-DD HH:MM (drop the year to save width on
+                // the 100 px label; full date is visible in the web dashboard).
+                const char *date_disp = date_str;
+                if (strlen(date_str) == 10) date_disp += 5; // skip "YYYY-"
+                snprintf(display_dt, sizeof(display_dt), "%s %s", date_disp, time_str);
 
                 // ── Row card ──────────────────────────────
                 lv_obj_t *card = lv_obj_create(list_cont);
@@ -115,7 +124,7 @@ void ui_history_load(void)
                 lv_obj_set_width(lbl_dur, 55);
 
                 lv_obj_t *lbl_dt = lv_label_create(card);
-                lv_label_set_text(lbl_dt, dateAndTime);
+                lv_label_set_text(lbl_dt, display_dt);
                 lv_obj_set_style_text_color(lbl_dt, OVERTEC_TEXT_SECONDARY, 0);
                 lv_obj_set_width(lbl_dt, 100);
                 lv_obj_set_style_text_align(lbl_dt, LV_TEXT_ALIGN_RIGHT, 0);

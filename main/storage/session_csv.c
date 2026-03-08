@@ -28,14 +28,30 @@ esp_err_t session_csv_append(const pomoTimer_t *session)
         fputs(SESSION_CSV_HEADER, f);
     }
 
-    // timerID,focusDuration,pomoCount,classTag,dateAndTime,isCompleted
-    fprintf(f, "%s,%d,%.1f,%s,%s,%d\n",
+    // Split "YYYY-MM-DD HH:MM" stored in dateAndTime into separate Date / Time
+    // columns so tools like Google Sheets and Notion auto-detect the types.
+    char date_str[16] = "unknown";
+    char time_str[8]  = "--:--";
+    char tmp[32];
+    strlcpy(tmp, session->dateAndTime, sizeof(tmp));
+    char *sp = strchr(tmp, ' ');
+    if (sp) {
+        *sp = '\0';
+        strlcpy(date_str, tmp,    sizeof(date_str));
+        strlcpy(time_str, sp + 1, sizeof(time_str));
+    } else if (tmp[0] != '\0') {
+        strlcpy(date_str, tmp, sizeof(date_str));
+    }
+
+    // Session ID,Date,Time (UTC),Tag,Duration (min),Pomodoros,Completed
+    fprintf(f, "%s,%s,%s,%s,%d,%d,%s\n",
             session->timerID,
-            session->focusDuration,
-            session->pomoCount,
+            date_str,
+            time_str,
             session->classTag,
-            session->dateAndTime,
-            session->isCompleted ? 1 : 0);
+            session->focusDuration,
+            (int)session->pomoCount,
+            session->isCompleted ? "Yes" : "No");
 
     fflush(f);  // ensure data is written through to the filesystem before close
     fclose(f);

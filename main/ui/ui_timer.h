@@ -5,7 +5,9 @@
 extern "C" {
 #endif
 
-void ui_timer_create(lv_disp_t *disp);
+// Create and load the main Pomodoro timer screen.
+// Restores countdown state from active_session.remaining_secs.
+void ui_timer_load(void);
 
 #ifdef __cplusplus
 }

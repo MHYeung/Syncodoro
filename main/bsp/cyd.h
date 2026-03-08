@@ -22,6 +22,10 @@ typedef struct {
 
 esp_err_t cyd_init(cyd_handles_t *out);
 
+// Mount SD card on the shared LCD SPI bus.
+// Call this after cyd_init(); failure is non-fatal (some boards have no SD card).
+esp_err_t cyd_init_sd(void);
+
 #ifdef __cplusplus
 }
 #endif

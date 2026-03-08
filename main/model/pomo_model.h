@@ -20,13 +20,14 @@ typedef enum {
 // DATA MODEL (Aligned with Flowchart)
 // =========================================================
 typedef struct {
-    char timerID[32];          // Unique ID for Notion sync
+    char timerID[32];          // Unique ID for session tracking
     int focusDuration;         // Target duration in minutes
+    int remaining_secs;        // Live countdown (persists across screen navigation)
     double pomoCount;          // Total accumulated pomodoros
     char classTag[32];         // "Coding", "Reading", etc.
     char dateAndTime[32];      // Timestamp string
     bool isCompleted;          // Flag for SD Card save trigger
-    pomotimerState_t timerState; 
+    pomotimerState_t timerState;
 } pomoTimer_t;
 
 // Global active session data exposed to the rest of the application

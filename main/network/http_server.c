@@ -1,0 +1,397 @@
+#include "http_server.h"
+#include "nvs_config.h"
+
+#include "esp_http_server.h"
+#include "esp_log.h"
+#include "esp_system.h"
+#include "esp_timer.h"
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+static const char *TAG = "http_srv";
+static httpd_handle_t s_server = NULL;
+
+// =========================================================
+// EMBEDDED HTML CONTENT
+// =========================================================
+
+static const char SETUP_HTML[] =
+"<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>Syncodoro Setup</title><style>"
+"*{box-sizing:border-box;margin:0;padding:0}"
+"body{font-family:system-ui,sans-serif;background:#1c1c1c;color:#ebeceq;"
+"min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}"
+".card{background:#2d2d2d;border-radius:12px;padding:32px;width:100%;max-width:400px}"
+"h1{color:#d6d8c9;font-size:1.6rem;margin-bottom:6px}"
+"p{color:#8a8a8a;margin-bottom:24px;font-size:.9rem}"
+"label{display:block;color:#d6d8c9;margin-bottom:6px;font-size:.9rem;margin-top:12px}"
+"input{width:100%;padding:12px;background:#1c1c1c;border:1px solid #444;"
+"color:#ebeceq;border-radius:8px;font-size:1rem;outline:none}"
+"input:focus{border-color:#5e9c60}"
+"button{width:100%;padding:14px;background:#5e9c60;color:#fff;border:none;"
+"border-radius:8px;font-size:1rem;cursor:pointer;font-weight:600;margin-top:24px}"
+"</style></head><body><div class=\"card\">"
+"<h1>Syncodoro</h1>"
+"<p>Connect to your WiFi so the device can sync your sessions.</p>"
+"<form action=\"/save\" method=\"POST\">"
+"<label>WiFi Network (SSID)</label>"
+"<input type=\"text\" name=\"ssid\" placeholder=\"Your WiFi name\" required autocomplete=\"off\">"
+"<label>Password</label>"
+"<input type=\"password\" name=\"password\" placeholder=\"Leave blank if open network\" autocomplete=\"off\">"
+"<button type=\"submit\">Save &amp; Connect</button>"
+"</form></div></body></html>";
+
+static const char SAVED_HTML[] =
+"<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>Syncodoro</title><style>"
+"body{font-family:system-ui,sans-serif;background:#1c1c1c;color:#d6d8c9;"
+"display:flex;align-items:center;justify-content:center;min-height:100vh}"
+".card{background:#2d2d2d;border-radius:12px;padding:40px;text-align:center;max-width:360px}"
+"h1{font-size:2rem;margin-bottom:12px;color:#5e9c60}"
+"p{color:#8a8a8a;line-height:1.6}"
+"</style></head><body><div class=\"card\">"
+"<h1>&#10003; Saved!</h1>"
+"<p>Credentials saved. The device will now reboot and connect to your WiFi network.<br><br>You can close this page.</p>"
+"</div></body></html>";
+
+static const char DASHBOARD_HTML[] =
+"<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\">"
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+"<title>Syncodoro Dashboard</title><style>"
+"*{box-sizing:border-box;margin:0;padding:0}"
+"body{font-family:system-ui,sans-serif;background:#1c1c1c;color:#ebeceq;padding:24px}"
+"h1{color:#d6d8c9;font-size:1.5rem;margin-bottom:4px}"
+".sub{color:#8a8a8a;font-size:.9rem;margin-bottom:24px}"
+".btn{display:inline-block;padding:10px 20px;background:#5e9c60;color:#fff;"
+"text-decoration:none;border-radius:8px;margin-bottom:24px;font-weight:600;font-size:.9rem}"
+"table{width:100%;border-collapse:collapse;background:#2d2d2d;border-radius:8px;overflow:hidden}"
+"th{background:#3a3a3a;color:#d6d8c9;padding:12px 16px;text-align:left;font-size:.8rem;font-weight:600}"
+"td{padding:12px 16px;border-bottom:1px solid #3a3a3a;color:#ebeceq;font-size:.9rem}"
+"tr:last-child td{border-bottom:none}"
+".tag{display:inline-block;padding:2px 10px;background:#444;border-radius:12px;font-size:.8rem}"
+".empty{color:#8a8a8a;text-align:center;padding:40px;font-size:.9rem}"
+"</style></head><body>"
+"<h1>Syncodoro</h1><p class=\"sub\">Pomodoro Session History</p>"
+"<a href=\"/download\" class=\"btn\">&#11123; Download CSV</a>"
+"<table><thead><tr><th>#</th><th>Date &amp; Time</th><th>Tag</th><th>Duration (min)</th><th>Sessions</th></tr></thead>"
+"<tbody id=\"b\"><tr><td colspan=\"5\" class=\"empty\">Loading...</td></tr></tbody></table>"
+"<script>"
+"fetch('/api/sessions').then(function(r){return r.json()}).then(function(d){"
+"var b=document.getElementById('b');"
+"if(!d||!d.length){b.innerHTML='<tr><td colspan=\"5\" class=\"empty\">No sessions recorded yet.</td></tr>';return;}"
+"b.innerHTML=d.map(function(s,i){"
+"return'<tr><td>'+(i+1)+'</td><td>'+s.dateAndTime+'</td><td><span class=\"tag\">'+s.classTag+'</span></td><td>'+s.focusDuration+'</td><td>'+Math.round(s.pomoCount)+'</td></tr>';"
+"}).join('');}).catch(function(){"
+"document.getElementById('b').innerHTML='<tr><td colspan=\"5\" class=\"empty\">Could not load sessions. SD card may be unavailable.</td></tr>';"
+"});</script></body></html>";
+
+// =========================================================
+// HELPERS
+// =========================================================
+
+// Simple URL-decode into dst. dst_len includes space for null terminator.
+static void url_decode(char *dst, const char *src, size_t dst_len)
+{
+    char *d = dst;
+    const char *s = src;
+    size_t rem = dst_len - 1;
+    while (*s && rem > 0) {
+        if (*s == '%' && s[1] && s[2]) {
+            char hex[3] = {s[1], s[2], '\0'};
+            *d++ = (char)strtol(hex, NULL, 16);
+            s += 3;
+        } else if (*s == '+') {
+            *d++ = ' ';
+            s++;
+        } else {
+            *d++ = *s++;
+        }
+        rem--;
+    }
+    *d = '\0';
+}
+
+// Extract value for key from URL-encoded form body (key=value&key2=value2).
+static void form_get_value(const char *body, const char *key, char *out, size_t out_len)
+{
+    out[0] = '\0';
+    size_t klen = strlen(key);
+    const char *p = body;
+    while (*p) {
+        if (strncmp(p, key, klen) == 0 && p[klen] == '=') {
+            p += klen + 1;
+            const char *end = strchr(p, '&');
+            size_t vlen = end ? (size_t)(end - p) : strlen(p);
+            if (vlen >= out_len) vlen = out_len - 1;
+            char encoded[128] = {0};
+            if (vlen < sizeof(encoded)) {
+                memcpy(encoded, p, vlen);
+                encoded[vlen] = '\0';
+            }
+            url_decode(out, encoded, out_len);
+            return;
+        }
+        // Advance past this key=value pair
+        p = strchr(p, '&');
+        if (!p) break;
+        p++;
+    }
+}
+
+// =========================================================
+// SETUP MODE HANDLERS
+// =========================================================
+
+static esp_err_t setup_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, SETUP_HTML, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// One-shot timer callback: fires 2 s after the HTTP handler returns,
+// giving the TCP stack time to flush and close the connection cleanly.
+static void reboot_timer_cb(void *arg)
+{
+    ESP_LOGI(TAG, "Rebooting now...");
+    esp_restart();
+}
+
+static esp_err_t setup_save_handler(httpd_req_t *req)
+{
+    // Read the full POST body.  Loop to handle TCP fragmentation.
+    char body[384] = {0};
+    int remaining = (int)req->content_len;
+    if (remaining <= 0 || remaining >= (int)sizeof(body)) {
+        // No body or suspiciously large – fall back to one blocking read
+        remaining = (int)sizeof(body) - 1;
+    }
+
+    int total = 0;
+    while (total < remaining) {
+        int n = httpd_req_recv(req, body + total, (size_t)(remaining - total));
+        if (n <= 0) {
+            ESP_LOGW(TAG, "recv error or connection closed (n=%d)", n);
+            break;
+        }
+        total += n;
+    }
+    body[total] = '\0';
+
+    if (total == 0) {
+        ESP_LOGW(TAG, "Empty POST body received");
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "POST body (%d bytes): %s", total, body);
+
+    char ssid[64]     = {0};
+    char password[64] = {0};
+    form_get_value(body, "ssid",     ssid,     sizeof(ssid));
+    form_get_value(body, "password", password, sizeof(password));
+
+    if (ssid[0] == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Saving credentials for SSID: %s", ssid);
+    nvs_config_save_wifi_credentials(ssid, password);
+    nvs_config_set_setup_mode(false);
+
+    // Send the "saved" confirmation page first.
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, SAVED_HTML, HTTPD_RESP_USE_STRLEN);
+
+    // Schedule a reboot 2 s from now via esp_timer so the HTTP server task
+    // can return cleanly and the TCP stack can flush/close the connection
+    // before the device restarts.  Do NOT block here with vTaskDelay.
+    esp_timer_handle_t timer;
+    const esp_timer_create_args_t timer_args = {
+        .callback = reboot_timer_cb,
+        .arg      = NULL,
+        .name     = "reboot_tmr",
+    };
+    if (esp_timer_create(&timer_args, &timer) == ESP_OK) {
+        esp_timer_start_once(timer, 2000000ULL); // 2 s in microseconds
+    } else {
+        // Fallback: restart immediately (response may not reach browser)
+        esp_restart();
+    }
+
+    return ESP_OK;
+}
+
+// =========================================================
+// DASHBOARD HANDLERS
+// =========================================================
+
+static esp_err_t dash_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, DASHBOARD_HTML, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// Stream CSV file from SD as a JSON array, one object per line.
+static esp_err_t api_sessions_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+
+    FILE *f = fopen("/sdcard/sessions.csv", "r");
+    if (!f) {
+        httpd_resp_sendstr(req, "[]");
+        return ESP_OK;
+    }
+
+    httpd_resp_sendstr_chunk(req, "[");
+
+    char line[256];
+    bool first = true;
+    // Skip header row
+    if (!fgets(line, sizeof(line), f)) {
+        fclose(f);
+        httpd_resp_sendstr_chunk(req, "]");
+        httpd_resp_sendstr_chunk(req, NULL);
+        return ESP_OK;
+    }
+
+    char timerID[32], classTag[32], dateAndTime[32];
+    int focusDuration;
+    double pomoCount;
+    int isCompleted;
+    char chunk[384];
+
+    while (fgets(line, sizeof(line), f)) {
+        // Strip trailing newline
+        line[strcspn(line, "\r\n")] = '\0';
+        if (line[0] == '\0') continue;
+
+        // Parse CSV: timerID,focusDuration,pomoCount,classTag,dateAndTime,isCompleted
+        int parsed = sscanf(line, "%31[^,],%d,%lf,%31[^,],%31[^,],%d",
+                            timerID, &focusDuration, &pomoCount, classTag, dateAndTime, &isCompleted);
+        if (parsed < 5) continue;
+
+        snprintf(chunk, sizeof(chunk),
+                 "%s{\"timerID\":\"%s\",\"focusDuration\":%d,\"pomoCount\":%.1f,"
+                 "\"classTag\":\"%s\",\"dateAndTime\":\"%s\",\"isCompleted\":%s}",
+                 first ? "" : ",",
+                 timerID, focusDuration, pomoCount, classTag, dateAndTime,
+                 isCompleted ? "true" : "false");
+
+        httpd_resp_sendstr_chunk(req, chunk);
+        first = false;
+    }
+
+    fclose(f);
+    httpd_resp_sendstr_chunk(req, "]");
+    httpd_resp_sendstr_chunk(req, NULL);
+    return ESP_OK;
+}
+
+// Serve the raw sessions.csv file as a downloadable attachment.
+static esp_err_t download_handler(httpd_req_t *req)
+{
+    FILE *f = fopen("/sdcard/sessions.csv", "r");
+    if (!f) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No sessions file found");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "text/csv");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"sessions.csv\"");
+
+    char buf[512];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        if (httpd_resp_send_chunk(req, buf, (ssize_t)n) != ESP_OK) {
+            break;
+        }
+    }
+    fclose(f);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+// =========================================================
+// PUBLIC API
+// =========================================================
+
+esp_err_t http_server_start_setup_mode(void)
+{
+    if (s_server) {
+        httpd_stop(s_server);
+        s_server = NULL;
+    }
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_open_sockets  = 4;
+    config.recv_wait_timeout = 10;
+    config.send_wait_timeout = 10;
+
+    if (httpd_start(&s_server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start HTTP server");
+        return ESP_FAIL;
+    }
+
+    httpd_uri_t setup_get = {
+        .uri = "/",
+        .method = HTTP_GET,
+        .handler = setup_get_handler,
+    };
+    httpd_register_uri_handler(s_server, &setup_get);
+
+    httpd_uri_t setup_save = {
+        .uri = "/save",
+        .method = HTTP_POST,
+        .handler = setup_save_handler,
+    };
+    httpd_register_uri_handler(s_server, &setup_save);
+
+    ESP_LOGI(TAG, "Setup HTTP server started at http://192.168.4.1");
+    return ESP_OK;
+}
+
+esp_err_t http_server_start_dashboard(void)
+{
+    if (s_server) {
+        httpd_stop(s_server);
+        s_server = NULL;
+    }
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_open_sockets  = 4;
+    config.max_uri_handlers  = 8;
+    config.recv_wait_timeout = 10;
+    config.send_wait_timeout = 10;
+
+    if (httpd_start(&s_server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start dashboard HTTP server");
+        return ESP_FAIL;
+    }
+
+    httpd_uri_t dash = { .uri = "/",              .method = HTTP_GET, .handler = dash_get_handler };
+    httpd_uri_t api  = { .uri = "/api/sessions",  .method = HTTP_GET, .handler = api_sessions_handler };
+    httpd_uri_t dl   = { .uri = "/download",      .method = HTTP_GET, .handler = download_handler };
+
+    httpd_register_uri_handler(s_server, &dash);
+    httpd_register_uri_handler(s_server, &api);
+    httpd_register_uri_handler(s_server, &dl);
+
+    ESP_LOGI(TAG, "Dashboard HTTP server started");
+    return ESP_OK;
+}
+
+void http_server_stop(void)
+{
+    if (s_server) {
+        httpd_stop(s_server);
+        s_server = NULL;
+        ESP_LOGI(TAG, "HTTP server stopped");
+    }
+}

@@ -1,8 +1,34 @@
 idf_component_register(
-    SRCS 
-        "main.c" "ui/ui_timer.c" "bsp/cyd.c" "model/pomo_model.c"
-    INCLUDE_DIRS 
-        "." "ui" "bsp" "model"
-
-    PRIV_REQUIRES esp_lcd nvs_flash esp_timer fatfs sdmmc
-       )
+    SRCS
+        "main.c"
+        "bsp/cyd.c"
+        "model/pomo_model.c"
+        "config/nvs_config.c"
+        "network/wifi_manager.c"
+        "network/http_server.c"
+        "storage/session_csv.c"
+        "storage/config_json.c"
+        "ui/ui_timer.c"
+        "ui/ui_setup.c"
+        "ui/ui_settings.c"
+        "ui/ui_history.c"
+    INCLUDE_DIRS
+        "."
+        "bsp"
+        "model"
+        "config"
+        "network"
+        "storage"
+        "ui"
+    PRIV_REQUIRES
+        esp_lcd
+        nvs_flash
+        esp_timer
+        fatfs
+        sdmmc
+        esp_wifi
+        esp_netif
+        esp_event
+        esp_http_server
+        esp_system
+)

@@ -22,9 +22,9 @@ typedef struct {
 
 esp_err_t cyd_init(cyd_handles_t *out);
 
-// Mount SD card on the shared LCD SPI bus.
-// Call this after cyd_init(); failure is non-fatal (some boards have no SD card).
-esp_err_t cyd_init_sd(void);
+// Mount the internal SPIFFS partition ("storage") at /data.
+// Call this after cyd_init(). The partition is auto-formatted on first use.
+esp_err_t cyd_init_spiffs(void);
 
 #ifdef __cplusplus
 }

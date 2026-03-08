@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-#define CONFIG_JSON_PATH "/sdcard/config.json"
+#define CONFIG_JSON_PATH "/data/config.json"
 
 // Load focus duration and class tag from /sdcard/config.json.
 // Returns ESP_OK on success. Values unchanged on error.

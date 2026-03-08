@@ -3,9 +3,11 @@
 #include "ui_timer.h"
 #include "ui_history.h"
 #include "wifi_manager.h"
+#include "nvs_config.h"
 
 #include "lvgl.h"
 #include <stdio.h>
+#include <stdint.h>
 
 LV_FONT_DECLARE(lv_font_montserrat_16);
 
@@ -56,6 +58,29 @@ static void poll_wifi_cb(lv_timer_t *t)
         lv_obj_set_style_text_color(s_lbl_wifi_status, OVERTEC_STATE_PAUSE, 0);
         if (s_btn_wifi) lv_obj_add_flag(s_btn_wifi, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+// Forward declaration — defined below after poll_wifi_cb
+static void cleanup_and_nav(void);
+
+// ──────────────── Theme swatch colours ────────────────────
+// Each swatch shows the state_start accent of its preset so the user
+// can identify themes at a glance.  Matches fill_* helpers in ui_theme.c.
+static const uint32_t s_swatch_col[POMO_THEME_COUNT] = {
+    0x5E9C60,   // 0 Dark   — muted green
+    0x4CAF70,   // 1 Forest — bright forest green
+    0x4A9CC7,   // 2 Ocean  — ocean blue
+    0xD4865A,   // 3 Warm   — terracotta
+};
+
+static void theme_swatch_cb(lv_event_t *e)
+{
+    uint8_t idx = (uint8_t)(uintptr_t)lv_event_get_user_data(e);
+    pomo_theme_apply(idx);
+    nvs_config_set_theme(idx);
+    // Navigate to timer; the freshly created screen will use the new g_theme.
+    cleanup_and_nav();
+    ui_timer_load();
 }
 
 // ──────────────── Navigation callbacks ────────────────────
@@ -125,8 +150,8 @@ void ui_settings_load(void)
 
     // ── Connect button (shown only when not connected) ─────
     s_btn_wifi = lv_button_create(scr);
-    lv_obj_set_size(s_btn_wifi, 140, 38);
-    lv_obj_align(s_btn_wifi, LV_ALIGN_TOP_MID, 0, 100);
+    lv_obj_set_size(s_btn_wifi, 140, 36);
+    lv_obj_align(s_btn_wifi, LV_ALIGN_TOP_MID, 0, 92);
     lv_obj_set_style_bg_color(s_btn_wifi, OVERTEC_STATE_START, 0);
     lv_obj_add_event_cb(s_btn_wifi, btn_wifi_connect_cb, LV_EVENT_CLICKED, NULL);
 
@@ -139,16 +164,44 @@ void ui_settings_load(void)
         lv_obj_add_flag(s_btn_wifi, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // ── Divider ───────────────────────────────────────────
+    // ── Divider (moved up to make room for theme row) ─────
     lv_obj_t *div = lv_obj_create(scr);
     lv_obj_set_size(div, 296, 1);
     lv_obj_set_style_bg_color(div, OVERTEC_BG_SURFACE, 0);
     lv_obj_set_style_border_width(div, 0, 0);
-    lv_obj_align(div, LV_ALIGN_TOP_MID, 0, 155);
+    lv_obj_align(div, LV_ALIGN_TOP_MID, 0, 136);
+
+    // ── Theme section ─────────────────────────────────────
+    lv_obj_t *lbl_theme_head = lv_label_create(scr);
+    lv_label_set_text(lbl_theme_head, "Theme");
+    lv_obj_set_style_text_color(lbl_theme_head, OVERTEC_TEXT_SECONDARY, 0);
+    lv_obj_align(lbl_theme_head, LV_ALIGN_TOP_LEFT, 12, 144);
+
+    // 4 coloured swatches — one per theme preset, left to right.
+    // A white border marks the currently active theme.
+    uint8_t cur_theme = nvs_config_get_theme();
+    for (int i = 0; i < POMO_THEME_COUNT; i++) {
+        lv_obj_t *swatch = lv_button_create(scr);
+        lv_obj_set_size(swatch, 46, 30);
+        lv_obj_align(swatch, LV_ALIGN_TOP_LEFT, 70 + i * 54, 140);
+        lv_obj_set_style_bg_color(swatch, lv_color_hex(s_swatch_col[i]), 0);
+        lv_obj_set_style_radius(swatch, 8, 0);
+
+        // Highlight the currently selected theme with a white border
+        if ((uint8_t)i == cur_theme) {
+            lv_obj_set_style_border_color(swatch, OVERTEC_TEXT_PRIMARY, 0);
+            lv_obj_set_style_border_width(swatch, 2, 0);
+        } else {
+            lv_obj_set_style_border_width(swatch, 0, 0);
+        }
+
+        lv_obj_add_event_cb(swatch, theme_swatch_cb, LV_EVENT_CLICKED,
+                            (void *)(uintptr_t)(uint8_t)i);
+    }
 
     // ── Navigation buttons ────────────────────────────────
     lv_obj_t *btn_timer = lv_button_create(scr);
-    lv_obj_set_size(btn_timer, 130, 50);
+    lv_obj_set_size(btn_timer, 130, 46);
     lv_obj_align(btn_timer, LV_ALIGN_BOTTOM_LEFT, 10, -10);
     lv_obj_set_style_bg_color(btn_timer, OVERTEC_BG_SURFACE, 0);
     lv_obj_add_event_cb(btn_timer, nav_timer_cb, LV_EVENT_CLICKED, NULL);
@@ -159,7 +212,7 @@ void ui_settings_load(void)
     lv_obj_center(lbl_timer);
 
     lv_obj_t *btn_hist = lv_button_create(scr);
-    lv_obj_set_size(btn_hist, 130, 50);
+    lv_obj_set_size(btn_hist, 130, 46);
     lv_obj_align(btn_hist, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
     lv_obj_set_style_bg_color(btn_hist, OVERTEC_BG_SURFACE, 0);
     lv_obj_add_event_cb(btn_hist, nav_history_cb, LV_EVENT_CLICKED, NULL);

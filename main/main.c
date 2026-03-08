@@ -1,6 +1,7 @@
 #include "cyd.h"
 #include "ui_timer.h"
 #include "ui_setup.h"
+#include "ui_theme.h"
 #include "nvs_config.h"
 #include "wifi_manager.h"
 #include "http_server.h"
@@ -32,6 +33,9 @@ void app_main(void)
     bool setup_mode = nvs_config_get_setup_mode();
     ESP_LOGI(TAG, "Boot: setup_mode=%d", setup_mode);
 
+    // ── 2b. Apply saved colour theme before UI is created ─
+    pomo_theme_apply(nvs_config_get_theme());
+
     // ── 3. Init BSP (display + touch + LVGL) ─────────────
     cyd_handles_t cyd;
     ESP_ERROR_CHECK(cyd_init(&cyd));
@@ -55,12 +59,11 @@ void app_main(void)
     } else {
         // ── Normal operation ────────────────────────────────
 
-        // Optional: mount SD card (non-fatal if absent)
-        esp_err_t sd_err = cyd_init_sd();
-        if (sd_err == ESP_OK) {
-            ESP_LOGI(TAG, "SD card mounted");
+        // Mount internal SPIFFS for session history and user config
+        ESP_ERROR_CHECK(cyd_init_spiffs());
 
-            // Load user config from SD and apply to active session
+        // Load user config from /data/config.json and apply to active session
+        {
             int focus_dur = active_session.focusDuration;
             char class_tag[32];
             strlcpy(class_tag, active_session.classTag, sizeof(class_tag));
@@ -71,8 +74,6 @@ void app_main(void)
                 active_session.remaining_secs = focus_dur * 60;
                 ESP_LOGI(TAG, "Config applied: %d min / %s", focus_dur, class_tag);
             }
-        } else {
-            ESP_LOGW(TAG, "SD card not available: %s", esp_err_to_name(sd_err));
         }
 
         // Start WiFi STA (non-blocking; callback fires on IP assignment)

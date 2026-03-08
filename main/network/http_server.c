@@ -63,31 +63,90 @@ static const char DASHBOARD_HTML[] =
 "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
 "<title>Syncodoro Dashboard</title><style>"
 "*{box-sizing:border-box;margin:0;padding:0}"
-"body{font-family:system-ui,sans-serif;background:#1c1c1c;color:#ebeceq;padding:24px}"
+"body{font-family:system-ui,sans-serif;background:#1c1c1c;color:#d6d8c9;padding:24px;max-width:860px;margin:0 auto}"
 "h1{color:#d6d8c9;font-size:1.5rem;margin-bottom:4px}"
+"h2{color:#d6d8c9;font-size:1.1rem;margin:28px 0 12px}"
 ".sub{color:#8a8a8a;font-size:.9rem;margin-bottom:24px}"
 ".btn{display:inline-block;padding:10px 20px;background:#5e9c60;color:#fff;"
-"text-decoration:none;border-radius:8px;margin-bottom:24px;font-weight:600;font-size:.9rem}"
+"text-decoration:none;border-radius:8px;margin-bottom:24px;font-weight:600;font-size:.9rem;border:none;cursor:pointer}"
+".btn-sm{padding:7px 14px;font-size:.85rem;font-weight:600;border:none;border-radius:6px;cursor:pointer}"
+".btn-add{background:#5e9c60;color:#fff}"
+".btn-save{background:#5e9c60;color:#fff;margin-top:14px;width:100%}"
+".btn-del{background:#6b3030;color:#d6d8c9;margin-left:6px;padding:3px 9px;font-size:.8rem;border-radius:4px;border:none;cursor:pointer}"
 "table{width:100%;border-collapse:collapse;background:#2d2d2d;border-radius:8px;overflow:hidden}"
 "th{background:#3a3a3a;color:#d6d8c9;padding:12px 16px;text-align:left;font-size:.8rem;font-weight:600}"
-"td{padding:12px 16px;border-bottom:1px solid #3a3a3a;color:#ebeceq;font-size:.9rem}"
+"td{padding:12px 16px;border-bottom:1px solid #3a3a3a;color:#d6d8c9;font-size:.9rem}"
 "tr:last-child td{border-bottom:none}"
 ".tag{display:inline-block;padding:2px 10px;background:#444;border-radius:12px;font-size:.8rem}"
 ".empty{color:#8a8a8a;text-align:center;padding:40px;font-size:.9rem}"
+".card{background:#2d2d2d;border-radius:10px;padding:20px;margin-top:8px}"
+".tag-row{display:flex;align-items:center;padding:7px 0;border-bottom:1px solid #3a3a3a}"
+".tag-row:last-child{border-bottom:none}"
+".tag-name{flex:1;font-size:.95rem}"
+".add-row{display:flex;gap:10px;margin-top:14px}"
+".add-row input{flex:1;padding:9px 12px;background:#1c1c1c;border:1px solid #444;"
+"color:#d6d8c9;border-radius:7px;font-size:.9rem;outline:none}"
+".add-row input:focus{border-color:#5e9c60}"
+".toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;"
+"font-size:.9rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none}"
+".toast.show{opacity:1}"
+".toast.ok{background:#2d4a2e;color:#7ecb82}"
+".toast.err{background:#4a2d2d;color:#cb7e7e}"
 "</style></head><body>"
 "<h1>Syncodoro</h1><p class=\"sub\">Pomodoro Session History</p>"
 "<a href=\"/download\" class=\"btn\">&#11123; Download CSV</a>"
 "<table><thead><tr><th>#</th><th>Date &amp; Time</th><th>Tag</th><th>Duration (min)</th><th>Sessions</th></tr></thead>"
 "<tbody id=\"b\"><tr><td colspan=\"5\" class=\"empty\">Loading...</td></tr></tbody></table>"
+"<h2>Manage Tags</h2>"
+"<div class=\"card\">"
+"<div id=\"tl\"><p class=\"empty\">Loading...</p></div>"
+"<div class=\"add-row\">"
+"<input type=\"text\" id=\"nt\" placeholder=\"New tag name...\" maxlength=\"31\">"
+"<button class=\"btn-sm btn-add\" onclick=\"addTag()\">Add</button>"
+"</div>"
+"<button class=\"btn btn-save\" onclick=\"saveTags()\">Save Tags to Device</button>"
+"</div>"
+"<div class=\"toast\" id=\"toast\"></div>"
 "<script>"
-"fetch('/api/sessions').then(function(r){return r.json()}).then(function(d){"
+"var tags=[];"
+/* Load sessions */
+"fetch('/api/sessions').then(function(r){return r.json();}).then(function(d){"
 "var b=document.getElementById('b');"
 "if(!d||!d.length){b.innerHTML='<tr><td colspan=\"5\" class=\"empty\">No sessions recorded yet.</td></tr>';return;}"
 "b.innerHTML=d.map(function(s,i){"
 "return'<tr><td>'+(i+1)+'</td><td>'+s.dateAndTime+'</td><td><span class=\"tag\">'+s.classTag+'</span></td><td>'+s.focusDuration+'</td><td>'+Math.round(s.pomoCount)+'</td></tr>';"
 "}).join('');}).catch(function(){"
-"document.getElementById('b').innerHTML='<tr><td colspan=\"5\" class=\"empty\">Could not load sessions. SD card may be unavailable.</td></tr>';"
-"});</script></body></html>";
+"document.getElementById('b').innerHTML='<tr><td colspan=\"5\" class=\"empty\">Could not load sessions.</td></tr>';"
+"});"
+/* Load tags */
+"fetch('/api/tags').then(function(r){return r.json();}).then(function(d){"
+"tags=d||[];renderTags();"
+"}).catch(function(){tags=[];renderTags();});"
+"function renderTags(){"
+"var el=document.getElementById('tl');"
+"if(!tags.length){el.innerHTML='<p class=\"empty\">No tags yet. Add one below.</p>';return;}"
+"el.innerHTML=tags.map(function(t,i){"
+"return'<div class=\"tag-row\"><span class=\"tag-name\">'+t+'</span>"
+"<button class=\"btn-del\" onclick=\"removeTag('+i+')\">&#10005;</button></div>';"
+"}).join('');}"
+"function addTag(){"
+"var v=document.getElementById('nt').value.trim();"
+"if(!v)return;"
+"if(tags.indexOf(v)>=0){showToast('Tag already exists','err');return;}"
+"tags.push(v);renderTags();document.getElementById('nt').value='';}"
+"function removeTag(i){tags.splice(i,1);renderTags();}"
+"function saveTags(){"
+"fetch('/api/tags',{method:'POST',"
+"headers:{'Content-Type':'application/x-www-form-urlencoded'},"
+"body:'tags='+encodeURIComponent(tags.join('\\n'))})"
+".then(function(r){if(r.ok){showToast('Tags saved!','ok');}else{showToast('Save failed','err');}})"
+".catch(function(){showToast('Save failed','err');});}"
+"function showToast(msg,type){"
+"var t=document.getElementById('toast');"
+"t.textContent=msg;t.className='toast '+type+' show';"
+"setTimeout(function(){t.className='toast';},2500);}"
+"document.getElementById('nt').addEventListener('keydown',function(e){if(e.key==='Enter')addTag();});"
+"</script></body></html>";
 
 // =========================================================
 // HELPERS
@@ -243,7 +302,7 @@ static esp_err_t api_sessions_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
 
-    FILE *f = fopen("/sdcard/sessions.csv", "r");
+    FILE *f = fopen("/data/sessions.csv", "r");
     if (!f) {
         httpd_resp_sendstr(req, "[]");
         return ESP_OK;
@@ -297,7 +356,7 @@ static esp_err_t api_sessions_handler(httpd_req_t *req)
 // Serve the raw sessions.csv file as a downloadable attachment.
 static esp_err_t download_handler(httpd_req_t *req)
 {
-    FILE *f = fopen("/sdcard/sessions.csv", "r");
+    FILE *f = fopen("/data/sessions.csv", "r");
     if (!f) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No sessions file found");
         return ESP_FAIL;
@@ -315,6 +374,101 @@ static esp_err_t download_handler(httpd_req_t *req)
     }
     fclose(f);
     httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+// =========================================================
+// TAG API HANDLERS
+// =========================================================
+
+#define DEFAULT_TAGS "Coding\nReading\nWriting\nDesign\nGaming\nStudying"
+
+/**
+ * @brief GET /api/tags — return current tag list as a JSON string array.
+ *
+ * Reads the '\n'-separated tag string from NVS and converts it to a JSON
+ * array.  Falls back to the built-in default list when no custom tags have
+ * been saved yet.
+ *
+ * @param req  Incoming HTTP request handle.
+ * @return ESP_OK always (errors produce an empty array response).
+ */
+static esp_err_t api_tags_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+
+    char tag_buf[512];
+    const char *tag_str = DEFAULT_TAGS;
+    if (nvs_config_get_tags(tag_buf, sizeof(tag_buf)) == ESP_OK && tag_buf[0] != '\0') {
+        tag_str = tag_buf;
+    }
+
+    /* Convert '\n'-separated string to a JSON array */
+    char json[640];
+    int pos = 0;
+    pos += snprintf(json + pos, sizeof(json) - (size_t)pos, "[");
+
+    const char *p = tag_str;
+    bool first = true;
+    while (*p) {
+        const char *nl = strchr(p, '\n');
+        size_t tlen = nl ? (size_t)(nl - p) : strlen(p);
+        if (tlen > 0 && pos < (int)sizeof(json) - 4) {
+            pos += snprintf(json + pos, sizeof(json) - (size_t)pos,
+                            "%s\"%.*s\"", first ? "" : ",", (int)tlen, p);
+            first = false;
+        }
+        if (!nl) break;
+        p = nl + 1;
+    }
+
+    snprintf(json + pos, sizeof(json) - (size_t)pos, "]");
+    httpd_resp_sendstr(req, json);
+    return ESP_OK;
+}
+
+/**
+ * @brief POST /api/tags — replace the stored tag list from a form-encoded body.
+ *
+ * Expects body: tags=Tag1%0ATag2%0ATag3 (URL-encoded newline-separated).
+ * The decoded string is written directly to NVS via nvs_config_set_tags().
+ *
+ * @param req  Incoming HTTP request handle.
+ * @return ESP_OK on success, ESP_FAIL on body read or NVS error.
+ */
+static esp_err_t api_tags_post_handler(httpd_req_t *req)
+{
+    char body[640] = {0};
+    int remaining = (int)req->content_len;
+    if (remaining <= 0 || remaining >= (int)sizeof(body)) {
+        remaining = (int)sizeof(body) - 1;
+    }
+
+    int total = 0;
+    while (total < remaining) {
+        int n = httpd_req_recv(req, body + total, (size_t)(remaining - total));
+        if (n <= 0) break;
+        total += n;
+    }
+    body[total] = '\0';
+
+    if (total == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty body");
+        return ESP_FAIL;
+    }
+
+    char tags_decoded[512] = {0};
+    form_get_value(body, "tags", tags_decoded, sizeof(tags_decoded));
+
+    esp_err_t err = nvs_config_set_tags(tags_decoded);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_config_set_tags failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "NVS write failed");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":true}");
     return ESP_OK;
 }
 
@@ -366,7 +520,7 @@ esp_err_t http_server_start_dashboard(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.max_open_sockets  = 4;
-    config.max_uri_handlers  = 8;
+    config.max_uri_handlers  = 10;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
 
@@ -375,13 +529,17 @@ esp_err_t http_server_start_dashboard(void)
         return ESP_FAIL;
     }
 
-    httpd_uri_t dash = { .uri = "/",              .method = HTTP_GET, .handler = dash_get_handler };
-    httpd_uri_t api  = { .uri = "/api/sessions",  .method = HTTP_GET, .handler = api_sessions_handler };
-    httpd_uri_t dl   = { .uri = "/download",      .method = HTTP_GET, .handler = download_handler };
+    httpd_uri_t dash      = { .uri = "/",             .method = HTTP_GET,  .handler = dash_get_handler };
+    httpd_uri_t api       = { .uri = "/api/sessions", .method = HTTP_GET,  .handler = api_sessions_handler };
+    httpd_uri_t dl        = { .uri = "/download",     .method = HTTP_GET,  .handler = download_handler };
+    httpd_uri_t tags_get  = { .uri = "/api/tags",     .method = HTTP_GET,  .handler = api_tags_get_handler };
+    httpd_uri_t tags_post = { .uri = "/api/tags",     .method = HTTP_POST, .handler = api_tags_post_handler };
 
     httpd_register_uri_handler(s_server, &dash);
     httpd_register_uri_handler(s_server, &api);
     httpd_register_uri_handler(s_server, &dl);
+    httpd_register_uri_handler(s_server, &tags_get);
+    httpd_register_uri_handler(s_server, &tags_post);
 
     ESP_LOGI(TAG, "Dashboard HTTP server started");
     return ESP_OK;

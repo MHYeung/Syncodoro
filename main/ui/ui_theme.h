@@ -7,30 +7,47 @@ extern "C" {
 #endif
 
 // =========================================================
-// OVERTEC BRAND COLOR PALETTE
+// RUNTIME COLOUR THEME
+// All UI files reference g_theme.* fields through these macros
+// so that switching themes at runtime automatically applies
+// to every newly created screen without touching UI source code.
 // =========================================================
-// Minimalist, premium dark theme inspired by the brand logo.
 
-// --- Background Colors ---
-// The deep dark background seen in the brand image
-#define OVERTEC_BG_MAIN         lv_color_hex(0x1C1C1C) 
-// A slightly lighter shade for buttons, panels, or elevated surfaces
-#define OVERTEC_BG_SURFACE      lv_color_hex(0x2D2D2D) 
+typedef struct {
+    lv_color_t bg_main;         // Deep background
+    lv_color_t bg_surface;      // Panels, buttons, elevated surfaces
+    lv_color_t text_primary;    // Primary label text
+    lv_color_t text_secondary;  // Muted / secondary text
+    lv_color_t accent;          // Tag labels, decorative accent
+    lv_color_t state_start;     // FOCUS / running / connected (green-family)
+    lv_color_t state_pause;     // PAUSED / connecting (orange-family)
+    lv_color_t state_stop;      // DONE / error / give-up (red-family)
+} pomo_theme_t;
 
-// --- Typography Colors ---
-// The warm off-white / bone color used for the OVERTEC lettering
-#define OVERTEC_TEXT_PRIMARY    lv_color_hex(0xEBECE4) 
-// A muted gray for secondary text (like "Free . Your . Imagination")
-#define OVERTEC_TEXT_SECONDARY  lv_color_hex(0x8A8A8A) 
+// Number of built-in presets (Dark, Forest, Ocean, Warm)
+#define POMO_THEME_COUNT 4
 
-// --- Accent & State Colors ---
-// A subtle, minimalist brand accent (matching the warm tone of the text)
-#define OVERTEC_ACCENT          lv_color_hex(0xD6D8C9) 
+// Global active theme — populated by pomo_theme_apply() before any UI is created
+extern pomo_theme_t g_theme;
 
-// Semantic colors for the timer, desaturated slightly to fit the premium vibe
-#define OVERTEC_STATE_START     lv_color_hex(0x5E9C60) // Muted Green
-#define OVERTEC_STATE_PAUSE     lv_color_hex(0xD18B47) // Muted Orange/Sand
-#define OVERTEC_STATE_STOP      lv_color_hex(0xC05A5A) // Muted Red
+/**
+ * @brief Copy preset[idx] into g_theme.  Safe to call before LVGL init.
+ *        Callers must persist the index to NVS themselves if desired.
+ *
+ * @param idx  Theme index 0–(POMO_THEME_COUNT-1); clamped to 0 if out of range.
+ */
+void pomo_theme_apply(uint8_t idx);
+
+// ── Convenience macros (identical names to the original palette) ──────────
+// UI source files use these macros unchanged; they now resolve to g_theme fields.
+#define OVERTEC_BG_MAIN         g_theme.bg_main
+#define OVERTEC_BG_SURFACE      g_theme.bg_surface
+#define OVERTEC_TEXT_PRIMARY    g_theme.text_primary
+#define OVERTEC_TEXT_SECONDARY  g_theme.text_secondary
+#define OVERTEC_ACCENT          g_theme.accent
+#define OVERTEC_STATE_START     g_theme.state_start
+#define OVERTEC_STATE_PAUSE     g_theme.state_pause
+#define OVERTEC_STATE_STOP      g_theme.state_stop
 
 #ifdef __cplusplus
 }

@@ -4,6 +4,7 @@
 #include "ui_history.h"
 #include "pomo_model.h"
 #include "session_csv.h"
+#include "nvs_config.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -36,6 +37,7 @@ static lv_obj_t *modal_overlay = NULL;
 static void update_time_display(void);
 static void update_ui_state(void);
 static void show_done_modal(void);
+static void clear_pui_widgets(void);
 
 // =========================================================
 // TAG SELECTION MODAL
@@ -77,10 +79,16 @@ static void show_tag_modal(void)
     lv_obj_set_style_text_color(label_title, OVERTEC_TEXT_PRIMARY, 0);
     lv_obj_align(label_title, LV_ALIGN_TOP_MID, 0, 0);
 
+    // Load tags from NVS; fall back to built-in list when none are saved yet.
+    static const char *DEFAULT_TAGS = "Coding\nReading\nWriting\nDesign\nGaming\nStudying";
+    char tag_buf[512];
+    const char *tag_options = DEFAULT_TAGS;
+    if (nvs_config_get_tags(tag_buf, sizeof(tag_buf)) == ESP_OK && tag_buf[0] != '\0') {
+        tag_options = tag_buf;
+    }
+
     lv_obj_t *roller = lv_roller_create(panel);
-    lv_roller_set_options(roller,
-        "Coding\nReading\nWriting\nDesign\nGaming\nStudying",
-        LV_ROLLER_MODE_NORMAL);
+    lv_roller_set_options(roller, tag_options, LV_ROLLER_MODE_NORMAL);
     lv_obj_set_style_text_font(roller, &lv_font_montserrat_16, 0);
     lv_obj_set_style_bg_color(roller, OVERTEC_BG_MAIN, 0);
     lv_obj_set_style_text_color(roller, OVERTEC_TEXT_SECONDARY, 0);
@@ -183,26 +191,30 @@ static void modal_save_cb(lv_event_t *e)
 {
     if (modal_overlay) { lv_obj_delete(modal_overlay); modal_overlay = NULL; }
 
-    // Update session ID and timestamp before saving
+    // Generate a unique session ID from the uptime counter
     snprintf(active_session.timerID, sizeof(active_session.timerID),
              "s%lld", esp_timer_get_time() / 1000000LL);
-    // dateAndTime is set externally (RTC or build time); use elapsed epoch here as fallback
-    if (active_session.dateAndTime[0] == '-' || active_session.dateAndTime[0] == '\0') {
-        snprintf(active_session.dateAndTime, sizeof(active_session.dateAndTime),
-                 "%llds", esp_timer_get_time() / 1000000LL);
+
+    // Use a clean "unknown" placeholder when no NTP time is available
+    if (active_session.dateAndTime[0] == '\0' ||
+        active_session.dateAndTime[0] == '-') {
+        strlcpy(active_session.dateAndTime, "unknown",
+                sizeof(active_session.dateAndTime));
     }
 
     esp_err_t ret = session_csv_append(&active_session);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "session_csv_append failed (SD card missing?)");
+        ESP_LOGW(TAG, "session_csv_append failed: %s", esp_err_to_name(ret));
     }
 
-    // Reset for next session
-    active_session.timerState = pomoTimer_IDLE;
-    active_session.isCompleted = false;
+    // Reset model for next session
+    active_session.timerState    = pomoTimer_IDLE;
+    active_session.isCompleted   = false;
     active_session.remaining_secs = active_session.focusDuration * 60;
-    update_time_display();
-    update_ui_state();
+
+    // Navigate to history so the user can immediately see the saved entry
+    clear_pui_widgets();
+    ui_history_load();
 }
 
 static void modal_discard_cb(lv_event_t *e)
@@ -331,10 +343,6 @@ static void update_ui_state(void)
 // =========================================================
 static void scr_clicked_cb(lv_event_t *e)
 {
-    lv_obj_t *target  = lv_event_get_target(e);
-    lv_obj_t *current = lv_event_get_current_target(e);
-    if (target != current) return;
-
     switch (active_session.timerState) {
         case pomoTimer_IDLE:
             active_session.timerState = pomoTimer_COUNTING;
@@ -442,8 +450,7 @@ void ui_timer_load(void)
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, OVERTEC_BG_MAIN, 0);
     lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, scr_clicked_cb, LV_EVENT_CLICKED, NULL);
+    // Screen is NOT the click target — a circle overlay handles start/stop.
 
     // ── Circular progress arc ─────────────────────────────
     pui.arc_progress = lv_arc_create(scr);
@@ -456,6 +463,19 @@ void ui_timer_load(void)
     lv_obj_set_style_arc_width(pui.arc_progress, 8, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(pui.arc_progress, OVERTEC_BG_SURFACE, LV_PART_MAIN);
     lv_obj_align(pui.arc_progress, LV_ALIGN_CENTER, 0, -10);
+
+    // ── Circular touch target (covers only the arc area) ──
+    // Created right after the arc so that child widgets (tag label, time label)
+    // that are clickable and created later sit on top in z-order and handle their
+    // own events.  Transparent, no border — purely a touch region.
+    lv_obj_t *touch_circle = lv_obj_create(scr);
+    lv_obj_set_size(touch_circle, 180, 180);
+    lv_obj_align(touch_circle, LV_ALIGN_CENTER, 0, -10);
+    lv_obj_set_style_radius(touch_circle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(touch_circle, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(touch_circle, 0, 0);
+    lv_obj_remove_flag(touch_circle, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(touch_circle, scr_clicked_cb, LV_EVENT_CLICKED, NULL);
 
     // ── Time label ────────────────────────────────────────
     pui.label_time = lv_label_create(scr);
@@ -500,10 +520,11 @@ void ui_timer_load(void)
 
     // ── Navigation icon buttons ───────────────────────────
     lv_obj_t *btn_settings = lv_button_create(scr);
-    lv_obj_set_size(btn_settings, 38, 30);
+    lv_obj_set_size(btn_settings, 44, 38);
     lv_obj_align(btn_settings, LV_ALIGN_TOP_LEFT, 4, 4);
     lv_obj_set_style_bg_color(btn_settings, OVERTEC_BG_SURFACE, 0);
     lv_obj_set_style_bg_opa(btn_settings, LV_OPA_80, 0);
+    lv_obj_set_ext_click_area(btn_settings, 10);
     lv_obj_add_event_cb(btn_settings, nav_settings_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_settings = lv_label_create(btn_settings);
     lv_label_set_text(lbl_settings, LV_SYMBOL_SETTINGS);
@@ -511,10 +532,11 @@ void ui_timer_load(void)
     lv_obj_center(lbl_settings);
 
     lv_obj_t *btn_history = lv_button_create(scr);
-    lv_obj_set_size(btn_history, 38, 30);
+    lv_obj_set_size(btn_history, 44, 38);
     lv_obj_align(btn_history, LV_ALIGN_TOP_RIGHT, -4, 4);
     lv_obj_set_style_bg_color(btn_history, OVERTEC_BG_SURFACE, 0);
     lv_obj_set_style_bg_opa(btn_history, LV_OPA_80, 0);
+    lv_obj_set_ext_click_area(btn_history, 10);
     lv_obj_add_event_cb(btn_history, nav_history_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_history = lv_label_create(btn_history);
     lv_label_set_text(lbl_history, LV_SYMBOL_LIST);

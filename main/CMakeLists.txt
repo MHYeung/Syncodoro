@@ -12,6 +12,7 @@ idf_component_register(
         "ui/ui_setup.c"
         "ui/ui_settings.c"
         "ui/ui_history.c"
+        "ui/ui_theme.c"
     INCLUDE_DIRS
         "."
         "bsp"
@@ -24,8 +25,7 @@ idf_component_register(
         esp_lcd
         nvs_flash
         esp_timer
-        fatfs
-        sdmmc
+        spiffs
         esp_wifi
         esp_netif
         esp_event

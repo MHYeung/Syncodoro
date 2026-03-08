@@ -12,9 +12,8 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_io_spi.h"
 
-// Includes for SD Card
-#include "esp_vfs_fat.h"
-#include "sdmmc_cmd.h"
+// Internal flash storage (SPIFFS)
+#include "esp_spiffs.h"
 
 // Touch controller (SPI)
 #include "esp_lcd_touch_xpt2046.h"
@@ -41,9 +40,6 @@ static const char *TAG = "cyd";
 #define PIN_NUM_TFT_DC           2
 #define PIN_NUM_TFT_RST          -1
 #define PIN_NUM_TFT_BL           21
-
-// --------------------------- SD CARD ---------------------------
-#define PIN_NUM_SD_CS            4 // TF card CS pin
 
 // The *native* ST7789 panel resolution is 240x320.
 // Many CYD projects use it in landscape (320x240) by applying rotation/mirroring at the panel level.
@@ -170,37 +166,35 @@ static esp_err_t init_touch(cyd_handles_t *out)
     return ESP_OK;
 }
 
-esp_err_t cyd_init_sd(void)
+/**
+ * @brief Mount the internal SPIFFS partition labelled "storage" at /data.
+ *
+ * Uses the existing "storage" spiffs partition defined in partitions.csv.
+ * Formats the partition on first use (format_if_mount_failed = true).
+ *
+ * @return ESP_OK on success, error code otherwise.
+ */
+esp_err_t cyd_init_spiffs(void)
 {
-    ESP_LOGI(TAG, "Initializing SD card on shared LCD SPI bus (SPI2)...");
+    ESP_LOGI(TAG, "Mounting SPIFFS partition 'storage' at /data...");
 
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-        .format_if_mount_failed = false,
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024
+    const esp_vfs_spiffs_conf_t conf = {
+        .base_path              = "/data",
+        .partition_label        = "storage",
+        .max_files              = 5,
+        .format_if_mount_failed = true,  // auto-format blank flash
     };
-    sdmmc_card_t *card;
 
-    // We reuse the existing CYD_LCD_HOST (SPI2)
-    sdmmc_host_t host = SDSPI_HOST_DEFAULT();
-    host.slot = CYD_LCD_HOST;
-
-    sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT();
-    slot_config.gpio_cs = PIN_NUM_SD_CS;
-    slot_config.host_id = host.slot;
-
-    // Because the LCD already initialized the SPI bus, we skip spi_bus_initialize
-    // and just mount the SD device directly to the active bus!
-    esp_err_t ret = esp_vfs_fat_sdspi_mount("/sdcard", &host, &slot_config, &mount_config, &card);
-
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to mount SD card (%s)", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "SPIFFS mount failed (%s)", esp_err_to_name(ret));
         return ret;
     }
 
-    ESP_LOGI(TAG, "SD Card mounted successfully!");
-    sdmmc_card_print_info(stdout, card);
-    
+    size_t total = 0, used = 0;
+    esp_spiffs_info("storage", &total, &used);
+    ESP_LOGI(TAG, "SPIFFS: %u KB total, %u KB used",
+             (unsigned)(total / 1024), (unsigned)(used / 1024));
     return ESP_OK;
 }
 

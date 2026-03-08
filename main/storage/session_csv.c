@@ -37,6 +37,7 @@ esp_err_t session_csv_append(const pomoTimer_t *session)
             session->dateAndTime,
             session->isCompleted ? 1 : 0);
 
+    fflush(f);  // ensure data is written through to the filesystem before close
     fclose(f);
     ESP_LOGI(TAG, "Session saved: %s  tag=%s  dur=%dmin",
              session->timerID, session->classTag, session->focusDuration);
